@@ -13,9 +13,10 @@
 #include <stdio.h>
 #include <errno.h>
 #include <pthread.h> 
-#include "threadPool.h"
+#include "ThreadPool.h"
 #include <string.h>
-#define SERV_PORT 10001
+#define POWER_LISTEN_PORT 10028
+#define PHONE_LISTEN_PORT 10030
 #define LISTENQ 10
 static int setNonblocking (int sockfd)
 {
@@ -28,7 +29,7 @@ static int setNonblocking (int sockfd)
 
 int main(int argc, char **argv)
 {
-    int                 listenfd, connfd, sockfd;
+    int                 powerlistenfd, connfd, phonelistenfd;
     struct sockaddr_in  cliaddr, servaddr;
     int epfd;
     int nfds;
@@ -36,20 +37,55 @@ int main(int argc, char **argv)
     char line[100];
     socklen_t clilen = sizeof(cliaddr);
 
-    if((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+    if((powerlistenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
         perror("socket");
         exit(0);
     }
     int reuse = 1;
-    setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    setsockopt(powerlistenfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
     bzero(&servaddr, sizeof(servaddr));
 
     servaddr.sin_family      = AF_INET;
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port        = htons(SERV_PORT);
+    servaddr.sin_port        = htons(POWER_LISTEN_PORT);
 
-    
+    setNonblocking (powerlistenfd);
+    if(bind(powerlistenfd,(struct sockaddr*) &servaddr, sizeof(servaddr)) < 0)
+    {
+        perror("bind");
+        exit(0);
+    }
+    if(listen(powerlistenfd, LISTENQ) < 0)
+    {
+        perror("listen");
+        exit(0);
+    }
+
+    if((phonelistenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+    {
+        perror("socket");
+        exit(0);
+    }
+    setsockopt(phonelistenfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    bzero(&servaddr, sizeof(servaddr));
+
+    servaddr.sin_family      = AF_INET;
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    servaddr.sin_port        = htons(PHONE_LISTEN_PORT);
+
+    setNonblocking (phonelistenfd);
+    if(bind(phonelistenfd,(struct sockaddr*) &servaddr, sizeof(servaddr)) < 0)
+    {
+        perror("bind");
+        exit(0);
+    }
+    if(listen(phonelistenfd, LISTENQ) < 0)
+    {
+        perror("listen");
+        exit(0);
+    }
+
     if((epfd = epoll_create(20)) < 0)
     {
         perror("epoll_create");
@@ -58,26 +94,26 @@ int main(int argc, char **argv)
 
     struct epoll_event ev,events[20];   
     
-    ev.data.fd = listenfd;
+    ev.data.fd = powerlistenfd;
     ev.events = EPOLLIN | EPOLLET;
     
-    if(epoll_ctl(epfd, EPOLL_CTL_ADD, listenfd, &ev) < 0)
+    if(epoll_ctl(epfd, EPOLL_CTL_ADD, powerlistenfd, &ev) < 0)
     {
         perror("epoll_ctl");
         exit(0);
     }
-    setNonblocking (listenfd);
-    if(bind(listenfd,(struct sockaddr*) &servaddr, sizeof(servaddr)) < 0)
+
+    ev.data.fd = phonelistenfd;
+    ev.events = EPOLLIN | EPOLLET;
+    
+    if(epoll_ctl(epfd, EPOLL_CTL_ADD, phonelistenfd, &ev) < 0)
     {
-        perror("bind");
+        perror("epoll_ctl");
         exit(0);
     }
-    if(listen(listenfd, LISTENQ) < 0)
-    {
-        perror("listen");
-        exit(0);
-    }
-    threadPool threadpool(10);
+
+
+    ThreadPool threadpool(10);
     for ( ; ; )
     {
         if((nfds = epoll_wait(epfd, events, 20, 0)) <= 0)
@@ -86,18 +122,29 @@ int main(int argc, char **argv)
         }
         for(int i = 0; i < nfds; i++)
         {
-            if(events[i].data.fd == listenfd)
+            if(events[i].data.fd == powerlistenfd)
             {
                 for( ; ; )
                 {
-                    if((connfd = accept(listenfd,(struct sockaddr*) &cliaddr, &clilen)) <= 0)
+                    if((connfd = accept(powerlistenfd,(struct sockaddr*) &cliaddr, &clilen)) <= 0)
                         break;
-                    std::cout << "Server got a connection from "<<
+                    std::cout << "Server got a power connection from "<<
                     inet_ntoa(cliaddr.sin_addr) << ntohs(cliaddr.sin_port) << std::endl;          
-                    setNonblocking (connfd);
-                    threadpool.addWork(connfd);
+                    threadpool.addWriteWork(connfd);
                 }
             }
+            /*if(events[i].data.fd == phonelistenfd)
+            {
+                for( ; ; )
+                {
+                    if((connfd = accept(phonelistenfd,(struct sockaddr*) &cliaddr, &clilen)) <= 0)
+                        break;
+                    std::cout << "Server got a phone connection from "<<
+                    inet_ntoa(cliaddr.sin_addr) << ntohs(cliaddr.sin_port) << std::endl;          
+                    setNonblocking (connfd);
+                    threadpool.addReadWork(connfd);
+                }
+            }*/
             /*else if(events[i].events&EPOLLIN)
             {
                 for( ; ; )

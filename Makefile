@@ -1,7 +1,7 @@
-powerMonitor: main.o threadPool.o
-	g++ main.o threadPool.o -o powerMonitor -lpthread -lmysqlclient
+powerMonitor: main.o ThreadPool.o
+	g++ main.o ThreadPool.o -o powerMonitor -lpthread -lmysqlclient
 
-main.o: main.cpp threadPool.h
+main.o: main.cpp ThreadPool.h
 	g++ -c main.cpp
-threadPool.o: threadPool.cpp threadPool.h
-	g++ -c threadPool.cpp
+threadPool.o: ThreadPool.cpp ThreadPool.h
+	g++ -c ThreadPool.cpp

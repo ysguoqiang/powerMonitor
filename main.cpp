@@ -13,8 +13,10 @@
 #include <stdio.h>
 #include <errno.h>
 #include <pthread.h> 
-#include "ThreadPool.h"
 #include <string.h>
+#include "ThreadPool.h"
+#include "Socket.h"
+
 #define POWER_LISTEN_PORT 10028
 #define PHONE_LISTEN_PORT 10030
 #define LISTENQ 10
@@ -29,62 +31,16 @@ static int setNonblocking (int sockfd)
 
 int main(int argc, char **argv)
 {
-    int                 powerlistenfd, connfd, phonelistenfd;
-    struct sockaddr_in  cliaddr, servaddr;
+    int connfd, phonelistenfd;
+
     int epfd;
     int nfds;
     ssize_t n;
     char line[100];
-    socklen_t clilen = sizeof(cliaddr);
 
-    if((powerlistenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-    {
-        perror("socket");
-        exit(0);
-    }
-    int reuse = 1;
-    setsockopt(powerlistenfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-    bzero(&servaddr, sizeof(servaddr));
-
-    servaddr.sin_family      = AF_INET;
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port        = htons(POWER_LISTEN_PORT);
-
-    setNonblocking (powerlistenfd);
-    if(bind(powerlistenfd,(struct sockaddr*) &servaddr, sizeof(servaddr)) < 0)
-    {
-        perror("bind");
-        exit(0);
-    }
-    if(listen(powerlistenfd, LISTENQ) < 0)
-    {
-        perror("listen");
-        exit(0);
-    }
-
-    if((phonelistenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-    {
-        perror("socket");
-        exit(0);
-    }
-    setsockopt(phonelistenfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-    bzero(&servaddr, sizeof(servaddr));
-
-    servaddr.sin_family      = AF_INET;
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port        = htons(PHONE_LISTEN_PORT);
-
-    setNonblocking (phonelistenfd);
-    if(bind(phonelistenfd,(struct sockaddr*) &servaddr, sizeof(servaddr)) < 0)
-    {
-        perror("bind");
-        exit(0);
-    }
-    if(listen(phonelistenfd, LISTENQ) < 0)
-    {
-        perror("listen");
-        exit(0);
-    }
+    Socket powerSocket(POWER_LISTEN_PORT, "");
+    powerSocket.CreateAndListen();
+    setNonblocking (powerSocket.GetFd());
 
     if((epfd = epoll_create(20)) < 0)
     {
@@ -94,7 +50,7 @@ int main(int argc, char **argv)
 
     struct epoll_event ev,events[20];   
     
-    ev.data.fd = powerlistenfd;
+    ev.data.fd = powerSocket.GetFd();
     ev.events = EPOLLIN | EPOLLET;
     
     if(epoll_ctl(epfd, EPOLL_CTL_ADD, powerlistenfd, &ev) < 0)
@@ -111,7 +67,6 @@ int main(int argc, char **argv)
         perror("epoll_ctl");
         exit(0);
     }
-
 
     ThreadPool threadpool(10);
     for ( ; ; )
